@@ -1,8 +1,10 @@
 #include "ps2/ee_live.hpp"
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(PS2_NO_LIVE)
 
-// The browser build has no compiler to call: code the build does not know still stops the game there.
+// The browser build and the iOS build (PS2_NO_LIVE: an iOS app may not run a compiler or load code it made itself) have no compiler
+// to call: code the build does not know still stops the game there. Play the game on a desktop first so the code it finds goes into
+// entries.txt and overlays/ of the game folder, then build for iOS again (docs/ios.md).
 namespace ps2::ee::live {
 void start(const std::string &, const std::string &, const std::string &) {}
 bool active() { return false; }

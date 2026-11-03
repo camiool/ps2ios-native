@@ -162,6 +162,12 @@ prints. Checked on CachyOS with an NVIDIA graphics card.
 
 **macOS:** [n0madic](https://github.com/n0madic) is the macOS maintainer: builds and tests it on an Apple Silicon Mac and looks after Mac issues and pull requests. GitHub also builds every change on macOS.
 
+## iPhone and iPad (new, untested on devices)
+
+A game ported on a Mac can also be built as an iOS app with touch controls: `bash scripts/port_ios.sh mygame --team <team ID>`.
+iOS does not let an app compile code while it runs, so play the game on the Mac first (what it finds goes into the app). See
+[`docs/ios.md`](docs/ios.md).
+
 ## Playing
 
 - **F1** shows all keys. They can be changed in `keys.ini` (the F1 card has a button for it).

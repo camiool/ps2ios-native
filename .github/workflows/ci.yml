@@ -90,6 +90,8 @@ jobs:
           build/ci/ps2iopboundstest
           "$CXX_BIN" -std=c++20 -O2 tests/stretch_test.cpp host/stretch.cpp -o build/ci/stretchtest
           build/ci/stretchtest
+          "$CXX_BIN" -std=c++20 -O2 tests/touchpad_test.cpp host/touchpad.cpp host/quickmenu.cpp -o build/ci/touchpadtest
+          build/ci/touchpadtest
           for t in analysis_tailcall elf_bss codegen_fallthrough; do
             python3 tests/$t.py --recompiler build/tools/eerecomp
           done
@@ -117,3 +119,35 @@ jobs:
           path: games/_autotests/
           if-no-files-found: ignore
           retention-days: 3
+
+  # The iOS build (docs/ios.md) without a game: the runtime and the iOS host (touch controls, the app's start, the UIKit surface)
+  # compiled for an iPhone, against wgpu-native and SDL2 for iOS. A game's app needs its disc and is built with scripts/port_ios.sh.
+  ios:
+    name: ios-arm64
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: brew install ninja
+
+      - name: Cache wgpu-native and SDL2 for iOS
+        uses: actions/cache@v4
+        with:
+          path: |
+            third_party/wgpu-native-ios
+            third_party/sdl2-ios
+          key: ios-deps-${{ hashFiles('scripts/fetch_wgpu.sh', 'scripts/fetch_sdl2_ios.sh') }}
+
+      - name: wgpu-native and SDL2 for iOS
+        run: |
+          [ -f third_party/wgpu-native-ios/lib/libwgpu_native.a ] || sh scripts/fetch_wgpu.sh ios
+          [ -f third_party/sdl2-ios/lib/libSDL2.a ] || sh scripts/fetch_sdl2_ios.sh ios
+
+      - name: Runtime and iOS host
+        run: |
+          cmake -S . -B build/ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+          xcodebuild -project build/ios/ps2-native-recomp.xcodeproj -target ps2runtime -target ps2ioshostcheck -configuration Release \
+            -sdk iphoneos CODE_SIGNING_ALLOWED=NO -jobs "$(sysctl -n hw.ncpu)" -quiet

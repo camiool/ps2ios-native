@@ -9,6 +9,11 @@
 #ifdef PS2_PROFILE
 #include "profile.hpp"
 #endif
+#ifdef PS2_IOS
+// SDL's app delegate starts the iOS app and calls this file's main, renamed SDL_main by this header (docs/ios.md)
+#include <SDL_main.h>
+#include "ios_launch.hpp"
+#endif
 
 #include <algorithm>
 #include <cstdio>
@@ -548,6 +553,18 @@ int main(int argc, char **argv) {
         utf8_argv.push_back(nullptr);
         argc = wide_argc;
         argv = utf8_argv.data();
+    }
+#endif
+#ifdef PS2_IOS
+    // an app has no command line: the arguments come from the app's game/args.txt (host/ios_launch.cpp)
+    std::vector<std::string> ios_args;
+    std::vector<char *> ios_argv;
+    if (argc < 2) {
+        if (!ios_launch::arguments(argc > 0 ? argv[0] : nullptr, ios_args)) return 1;
+        for (std::string &a : ios_args) ios_argv.push_back(a.data());
+        ios_argv.push_back(nullptr);
+        argc = static_cast<int>(ios_args.size());
+        argv = ios_argv.data();
     }
 #endif
     if (argc < 2) return usage();

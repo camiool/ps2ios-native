@@ -1,15 +1,21 @@
 #!/bin/sh
 # Downloads the wgpu-native release for this PC into third_party/wgpu-native and checks its SHA-256 before unpacking.
 # Another version needs its SHA-256 as the second argument: scripts/fetch_wgpu.sh v30.0.0.1 <sha256>.
+# For an iOS build (docs/ios.md) the first argument is ios (devices) or ios-sim (the Simulator on an Apple Silicon Mac): they go into
+# third_party/wgpu-native-ios and third_party/wgpu-native-ios-sim, next to the Mac's own.
 set -e
 pinned=v29.0.1.1
-version=${1:-$pinned}
-sha256=${2:-}
 here=$(cd "$(dirname "$0")/.." && pwd)
 target="$here/third_party/wgpu-native"
 os=$(uname -s | sed "s/Darwin/macos/;s/Linux/linux/;s/MINGW.*/windows/;s/MSYS.*/windows/")
 arch=$(uname -m | sed "s/arm64/aarch64/")
 [ "$os" = windows ] && arch=$arch-gnu
+case "${1:-}" in
+  ios) os=ios; arch=aarch64; target="$here/third_party/wgpu-native-ios"; shift ;;
+  ios-sim) os=ios; arch=aarch64-simulator; target="$here/third_party/wgpu-native-ios-sim"; shift ;;
+esac
+version=${1:-$pinned}
+sha256=${2:-}
 if [ -z "$sha256" ] && [ "$version" = "$pinned" ]; then
   # from the release page (GitHub's digest for each file), checked by downloading each once on 2026-10-31
   case "$os-$arch" in
@@ -18,7 +24,10 @@ if [ -z "$sha256" ] && [ "$version" = "$pinned" ]; then
     macos-aarch64)      sha256=a5797a37b1adf720bcd5dcffb291edbbd5b7b14be0a3874c28e6393a655a7a3e ;;
     macos-x86_64)       sha256=8e2f7378548ddd0e2cf21e7d864dda46e953f0af724855a33778b85ead206d41 ;;
     windows-x86_64-gnu) sha256=d471e3614733c1d4ddd61bfd19868356477d0d37bf531bf8c6cb64a7f579bd2a ;;
-    *) echo "wgpu-native: no $pinned build for $os-$arch (there are linux and macos x86_64/aarch64, windows x86_64)" >&2; exit 1 ;;
+    # checked by downloading each once on 2026-11-03
+    ios-aarch64)        sha256=e36c9913b9e5095a530fa9121c50b16a4e3dd020e1eebf601f2f47ce24d56941 ;;
+    ios-aarch64-simulator) sha256=750e706765bef3744313745194774d095c916fc21d2a0e7d4d7b0bc4d0c92789 ;;
+    *) echo "wgpu-native: no $pinned build for $os-$arch (there are linux and macos x86_64/aarch64, windows x86_64, ios and ios-sim)" >&2; exit 1 ;;
   esac
 fi
 [ -n "$sha256" ] || { echo "wgpu-native: no SHA-256 known for $version: pass it as the second argument" >&2; exit 1; }

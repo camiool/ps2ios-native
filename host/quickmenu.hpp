@@ -40,6 +40,11 @@ struct Picture {
     int width = 0, height = 0, x = 0, y = 0;
 };
 
+// One line of the menu's font into a picture: each font pixel is `scale` x `scale` picture pixels, a letter 6 font pixels wide with its gap
+// (host/touchpad.cpp labels its buttons with it). rgba as in Picture; the pixels are replaced, not blended.
+void draw_text(Picture &out, int x, int y, int scale, const std::string &text, std::uint32_t rgba);
+inline int text_width(const std::string &text, int scale) { return text.empty() ? 0 : static_cast<int>(text.size()) * 6 * scale - scale; }
+
 class Menu {
 public:
     bool is_open() const { return open_; }

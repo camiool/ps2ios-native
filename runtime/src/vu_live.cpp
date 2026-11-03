@@ -2,9 +2,10 @@
 
 #include "ps2/os.hpp"
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(PS2_NO_LIVE)
 
-// The browser build has its own compiler for vector programs (vu_jit_web.cpp): nothing to do here.
+// The browser build has its own compiler for vector programs (vu_jit_web.cpp): nothing to do here. The iOS build (PS2_NO_LIVE) may
+// not compile or load code while it runs: programs the build does not know run in the interpreter (docs/ios.md).
 namespace ps2::vu::live {
 std::atomic<bool> g_ready{false};
 void start(const std::string &) {}

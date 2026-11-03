@@ -49,6 +49,9 @@
 #include "ps2/os.hpp"
 #include "ps2/video.hpp"
 #include "stretch.hpp"
+#ifdef PS2_TOUCH
+#include "touchpad.hpp"
+#endif
 #ifdef PS2_GPU
 #include "../runtime/src/gs/gpu/overlay.hpp"  // the quick menu's panel in the WebGPU present pass
 #endif
@@ -93,6 +96,14 @@ std::uint32_t g_tex_w = 0, g_tex_h = 0;
 std::uint64_t g_last = 0;
 std::vector<std::uint32_t> g_pixels;
 bool g_gpu_present = false;
+
+#ifdef PS2_TOUCH
+// --- the touch controls (host/touchpad.cpp, docs/ios.md) ---
+// Shown and read while no controller is in the first port. While the quick menu is open the fingers work as a mouse pointer for its
+// entries (SDL makes mouse events of them), otherwise they are the touch controls'.
+bool touch_shown() { return !g_pads[0]; }
+void touch_mouse(bool on) { SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, on ? "1" : "0"); }
+#endif
 
 // Where the window thread is in its own loop ("asking the system for events", "drawing") and since when. Always on: two stores per
 // step. The Linux watchdog prints it when no frame comes, so a window thread that is stuck in one call names the call (docs/linux.md,
@@ -157,6 +168,9 @@ bool g_note_wanted = false;  // a save or load was asked by the menu: the next m
 std::string g_note_text;  // not empty while the note is up
 Uint32 g_note_until = 0;
 bool g_overlay_on = false;  // g_menu_picture is laid over the game's picture (the menu, or the note)
+#ifdef PS2_IOS
+bool g_app_away = false;  // iOS: the app is in the background, where it may not draw
+#endif
 std::uint64_t g_script_extra = 0;  // the pad script's clock goes on while the menu is open (the game's frames stand still)
 
 void refresh_title() {
@@ -197,6 +211,14 @@ bool attach_gpu() {
     switch (info.subsystem) {
 #if defined(__APPLE__) && defined(SDL_VIDEO_DRIVER_COCOA)
     case SDL_SYSWM_COCOA:
+        g_metal_view = SDL_Metal_CreateView(g_window);
+        if (!g_metal_view) return false;
+        target.kind = ps2::WindowTarget::Metal;
+        target.surface = SDL_Metal_GetLayer(g_metal_view);
+        break;
+#endif
+#if defined(__APPLE__) && defined(SDL_VIDEO_DRIVER_UIKIT)
+    case SDL_SYSWM_UIKIT:  // iOS: the same Metal layer, in a view SDL puts into the app's window (docs/ios.md)
         g_metal_view = SDL_Metal_CreateView(g_window);
         if (!g_metal_view) return false;
         target.kind = ps2::WindowTarget::Metal;
@@ -761,6 +783,14 @@ void poll_port(int port) {
     std::uint8_t l2 = 0xFF, r2 = 0xFF;
     std::uint8_t lx = 0x80, ly = 0x80, rx = 0x80, ry = 0x80;
     if (port == 0) read_keyboard(pressed, lx, ly, rx, ry);
+#ifdef PS2_TOUCH
+    if (port == 0 && touch_shown()) {
+        const touchpad::Reading t = touchpad::read();
+        pressed |= t.buttons;
+        if (lx == 0x80 && ly == 0x80) lx = t.lx, ly = t.ly;
+        if (rx == 0x80 && ry == 0x80) rx = t.rx, ry = t.ry;
+    }
+#endif
     if (pad) {
         for (const PadBinding &b : kPadButtons)
             if (b.button != SDL_CONTROLLER_BUTTON_BACK && SDL_GameControllerGetButton(pad, b.button)) pressed |= b.mask;
@@ -884,6 +914,17 @@ void menu_paint(bool show_again = true) {
     g_overlay_on = g_menu.is_open() || !g_note_text.empty();
     if (!g_overlay_on) {
 #ifdef PS2_GPU
+#ifdef PS2_TOUCH
+        // the touch controls when nothing else is shown (the menu and a note cover them, and a controller hides them)
+        if (g_gpu_present && touch_shown()) {
+            int w = 0, h = 0;
+            window_pixels(w, h);
+            touchpad::set_window(w, h);
+            const quickmenu::Picture &t = touchpad::picture();
+            ps2::gs::gpu::set_overlay(t.rgba.data(), static_cast<std::uint32_t>(t.width), static_cast<std::uint32_t>(t.height), 0, 0);
+            return;
+        }
+#endif
         if (g_gpu_present) ps2::gs::gpu::set_overlay(nullptr, 0, 0, 0, 0);
 #endif
         return;
@@ -939,6 +980,9 @@ void draw_menu_sdl() {
 // the last picture once more, with the panel as it is now: the game sends no new ones while it waits
 void menu_show_again() {
     g_menu_redraw = false;
+#ifdef PS2_IOS
+    if (g_app_away) return;  // iOS: no drawing in the background
+#endif
 #ifdef PS2_GPU
     if (g_gpu_present) {
         ps2::gs::gpu::present_again();
@@ -959,6 +1003,10 @@ void open_menu(const char *why) {
     g_key_note.clear();
     g_menu.open();
     g_menu.set_key_rows(keymap::kChangeableCount);
+#ifdef PS2_TOUCH
+    touchpad::release_all();
+    touch_mouse(true);
+#endif
     g_menu_hold.store(true, std::memory_order_release);
     g_menu_opened_ticks = SDL_GetTicks();
     SDL_SetRelativeMouseMode(SDL_FALSE);  // the pointer can click the entries
@@ -975,6 +1023,9 @@ void close_menu(const char *why) {
     if (!g_menu.is_open()) return;
     g_menu.close();
     g_block_input[0] = g_block_input[1] = true;
+#ifdef PS2_TOUCH
+    touch_mouse(false);
+#endif
     menu_paint();  // takes the panel away (shown at once, before the game's next picture)
     SDL_ShowCursor(SDL_DISABLE);
     apply_mouse_mode();
@@ -1295,6 +1346,29 @@ void poll() {
             ps2::halt("window closed");
             close_menu("the window was closed");  // a game that waits for the menu must go on to see the halt
         }
+#ifdef PS2_IOS
+        if (e.type == SDL_APP_TERMINATING) ps2::flush_memory_card();
+        if (e.type == SDL_APP_WILLENTERBACKGROUND) {
+            // iOS stops drawing for an app in the background: the game waits in the quick menu until the player comes back and
+            // chooses Resume, and the memory card is written now, since the system may end the app while it is away
+            ps2::flush_memory_card();
+            open_menu("the app went to the background");
+            g_app_away = true;
+        }
+        if (e.type == SDL_APP_DIDENTERFOREGROUND) {
+            g_app_away = false;
+            menu_paint();
+        }
+#endif
+#ifdef PS2_TOUCH
+        if (!g_menu.is_open() && (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERMOTION || e.type == SDL_FINGERUP)) {
+            if (e.type == SDL_FINGERDOWN) touchpad::finger_down(static_cast<std::int64_t>(e.tfinger.fingerId), e.tfinger.x, e.tfinger.y);
+            else if (e.type == SDL_FINGERMOTION) touchpad::finger_move(static_cast<std::int64_t>(e.tfinger.fingerId), e.tfinger.x, e.tfinger.y);
+            else touchpad::finger_up(static_cast<std::int64_t>(e.tfinger.fingerId));
+            if (touchpad::take_menu_tap()) open_menu("the MENU button on the touch screen");
+            continue;
+        }
+#endif
         if (menu_event(e)) continue;
         if (e.type == SDL_KEYDOWN && e.key.keysym.scancode == SDL_SCANCODE_F11 && !e.key.repeat) toggle_fullscreen();
         // F1 the quick menu (menu_event), F5 quick save, F8 quick load, F9 "something is wrong here" (the game's own buttons: keys.ini,
@@ -1314,6 +1388,10 @@ void poll() {
         }
         if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || e.window.event == SDL_WINDOWEVENT_EXPOSED) && g_overlay_on)
             menu_paint();  // the panel for the new size
+#ifdef PS2_TOUCH
+        else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
+            menu_paint(false);  // the touch controls for the new size
+#endif
         if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_FOCUS_LOST)) {
             if (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
                 g_focus_gained_ticks = SDL_GetTicks();
@@ -1331,6 +1409,12 @@ void poll() {
         }
         if (e.type == SDL_CONTROLLERDEVICEADDED) open_pad(e.cdevice.which);
         if (e.type == SDL_CONTROLLERDEVICEREMOVED) close_pad(e.cdevice.which);
+#ifdef PS2_TOUCH
+        if ((e.type == SDL_CONTROLLERDEVICEADDED || e.type == SDL_CONTROLLERDEVICEREMOVED) && !g_menu.is_open()) {
+            touchpad::release_all();
+            if (!g_overlay_on) menu_paint(false);  // the touch controls go away with a controller and come back without one
+        }
+#endif
         if (e.type == SDL_JOYDEVICEADDED && !SDL_IsGameController(e.jdevice.which))
             std::fprintf(stderr, "[pad] %s is not used: SDL knows no button layout for it (docs/sound-pad.md: gamecontrollerdb.txt)\n",
                          or_unknown(SDL_JoystickNameForIndex(e.jdevice.which)));
@@ -1742,6 +1826,12 @@ bool open_window(bool fullscreen) {
     g_beep_on = no_beep.empty() || no_beep == "0";
     g_pad_log = !pad_log.empty() && pad_log != "0";
     if (!script.empty()) SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+#ifdef PS2_TOUCH
+    // fingers are the touch controls' (host/touchpad.cpp), not a mouse, until the quick menu opens; the phone is held sideways
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+    SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");
+#endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
         std::fprintf(stderr, "SDL: %s\n", SDL_GetError());
         return false;
@@ -1948,6 +2038,9 @@ int run_window(const std::function<int()> &emulate) {
     g_gpu_present = attach_gpu();
     std::fprintf(stderr, "[window] %s\n", g_gpu_present ? "presenting through WebGPU" : "presenting through SDL");
     if (!g_gpu_present && !create_renderer()) return 1;
+#ifdef PS2_TOUCH
+    menu_paint(false);  // the touch controls from the first picture on
+#endif
     const bool threads = !std::getenv("PS2_ONE_THREAD") && !std::getenv("PS2_TIME") && ps2::g_options.frames_dir.empty();
     if (!threads) {
         ps2::g_options.on_vblank = on_vblank;

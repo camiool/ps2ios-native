@@ -140,6 +140,12 @@ struct Canvas {
     }
 };
 
+}  // namespace
+
+void draw_text(Picture &out, int x, int y, int scale, const std::string &text, std::uint32_t color) { Canvas{out}.text(x, y, scale, text, color); }
+
+namespace {
+
 std::string entry_text(int i, const Values &v, bool quit_armed) {
     switch (kCommands[i]) {
     case Command::resume: return "Resume";

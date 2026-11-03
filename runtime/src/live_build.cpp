@@ -1,6 +1,6 @@
 #include "live_build.hpp"
 
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(PS2_NO_LIVE)
 
 #include "ps2/os.hpp"
 
