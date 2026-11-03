@@ -1,3 +1,13 @@
+# ps2ios-native
+
+**A fork of [ps2-native-recomp](https://github.com/exoteric33/ps2-native-recomp) by exoteric33 that adds iPhone and iPad builds.**
+All the recompiler, the runtime and the desktop app are exoteric33's work, which is built on
+[ps2-web-recomp](https://github.com/snuri00/ps2-web-recomp) by Samir Nuri. This fork adds an iOS app build with touch
+controls: see [`docs/ios.md`](docs/ios.md) and [*Credits and license*](#credits-and-license). Reports about the desktop
+runner and the games belong upstream; reports about the iOS build belong here.
+
+---
+
 # ps2-native-recomp
 
 Turns a PS2 game disc you own into a native Windows or Linux program by static recompilation: the code of the PS2's
@@ -190,6 +200,11 @@ not share them. Please do not ask for disc images here. There is no decryption o
 (PS2 discs need none).
 
 ## Credits and license
+
+**This fork (ps2ios-native):** the iOS build (`scripts/port_ios.sh`, `host/touchpad.cpp`, `host/ios_launch.cpp`, `ios/`,
+`docs/ios.md` and the iOS parts of `CMakeLists.txt` and `host/window.cpp`) was added on top of
+[exoteric33/ps2-native-recomp](https://github.com/exoteric33/ps2-native-recomp) (imported from its commit `cba42f5`), under
+the same MIT license. Everything else is the upstream project's, credited below.
 
 The recompiler and the runtime started as [ps2-web-recomp](https://github.com/snuri00/ps2-web-recomp) by Samir Nuri,
 which also runs on macOS and in the browser; its README explains how the recompiler and the runtime work.
